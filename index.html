@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>20年｜沪深300全收益 VS 二级债基指数(885007)叠加图</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<style>
+*{box-sizing:border-box;font-family:system-ui, -apple-system, sans-serif}
+body{background:#f5f7fa;padding:16px;max-width:1250px;margin:0 auto}
+.card{background:#fff;border-radius:14px;padding:22px;box-shadow:0 2px 14px rgba(0,0,0,0.1)}
+h2{margin-top:0;color:#222}
+.desc{color:#555;font-size:14px;line-height:1.6;margin-bottom:12px}
+.ctrl-row{margin:14px 0}
+#fileTip{color:#2774cc;margin:8px 0;font-size:14px}
+#sliderBox{margin-top:18px}
+input[type="range"]{width:100%}
+.info-text{margin-top:8px;font-size:14px;color:#333}
+.note{margin-top:14px;color:#888;font-size:13px;line-height:1.5}
+canvas{width:100% !important;height:520px !important}
+</style>
+</head>
+<body>
+<div class="card">
+<h2>20年周期：沪深300全收益 ↔ 万得二级债885007 归一净值叠加</h2>
+<div class="desc">
+指标逻辑：起点归一=1；两线重合=沪深累计收益≈二级债累计收益<br>
+功能：底部滑块滑动时间窗口、滚轮缩放X轴、拖拽平移、悬浮显示净值+差值；支持CSV上传替换真实数据
+</div>
+<div class="ctrl-row">
+<input type="file" id="csvFile" accept=".csv">
+<div id="fileTip">默认加载2006-2026拟合模拟数据，上传CSV切换真实数据</div>
+</div>
+<canvas id="mainChart"></canvas>
+<div id="sliderBox">
+<label>窗口起始：<span id="showStartDate"></span></label>
+<input type="range" id="timeSlider">
+<div class="info-text">当前可视区间：<span id="showRange"></span></div>
+</div>
+<div class="note">
+⚠️ 内置模拟数据仅用于指标形态学习，不是Wind原始精确数据；885007为Wind专有指数，公开无完整20年免费序列；
+历史交汇不等于后续必然见底，仅作为大类资产性价比观测工具，不构成任何投资建议。
+CSV格式：date,hs300_total,bond_885007  日期yyyy-MM-dd
+</div>
+</div>
+
+<script>
+const ctx = document.getElementById("mainChart").getContext("2d");
+let chart;
+let labels = [];
+let hsData = [];
+let bondData = [];
+const viewWindowLen = 420; // 每次窗口显示交易日数量
+const slider = document.getElementById("timeSlider");
+const showStartDate = document.getElementById("showStartDate");
+const showRange = document.getElementById("showRange");
+const fileInput = document.getElementById("csvFile");
+const fileTip = document.getElementById("fileTip");
+
+// 生成2006-01-01 ~ 2026-11 模拟日线（复刻08、15、18、22几次大底交汇形态）
+function genSimData(){
+    labels = [];
+    hsData = [];
+    bondData = [];
+    let day = new Date("2006-01-01");
+    let hs = 1.0;
+    let bond = 1.0;
+    const totalDays = 5000;
+    for(let i=0; i<totalDays; i++){
+        // 跳过周末简单模拟交易日
+        if(day.getDay()!==0 && day.getDay()!==6){
+            labels.push(new Date(day));
+            // 二级债：年化3%缓慢上行，小幅波动
+            bond = bond * (1 + 0.03/250 + (Math.random()-0.5)*0.0012);
+            // 沪深分段复刻牛熊
+            const ratio = i / totalDays;
+            if(ratio < 0.08){ // 2006-2007大牛市
+                hs = hs * (1 + 0.0042 + (Math.random()-0.5)*0.009);
+            }else if(ratio < 0.14){ // 08熊市大跌，第一次交汇下穿
+                hs = hs * (1 - 0.0038 + (Math.random()-0.5)*0.009);
+            }else if(ratio < 0.24){ // 09反弹
+                hs = hs * (1 + 0.0025 + (Math.random()-0.5)*0.007);
+            }else if(ratio < 0.34){ // 2011-2014漫长阴跌，再次靠近
+                hs = hs * (1 - 0.0009 + (Math.random()-0.5)*0.006);
+            }else if(ratio < 0.39){ // 14-15牛市
+                hs = hs * (1 + 0.0031 + (Math.random()-0.5)*0.008);
+            }else if(ratio < 0.44){ // 股灾15下半年
+                hs = hs * (1 - 0.0034 + (Math.random()-0.5)*0.008);
+            }else if(ratio < 0.54){ // 16-17慢牛
+                hs = hs * (1 + 0.0011 + (Math.random()-0.5)*0.006);
+            }else if(ratio < 0.59){ // 18贸易战熊市交汇
+                hs = hs * (1 - 0.0024 + (Math.random()-0.5)*0.007);
+            }else if(ratio < 0.72){ // 19-21年初反弹
+                hs = hs * (1 + 0.0016 + (Math.random()-0.5)*0.006);
+            }else if(ratio < 0.78){ // 2022熊市交汇
+                hs = hs * (1 - 0.0021 + (Math.random()-0.5)*0.007);
+            }else{ // 2023~2026震荡
+                hs = hs * (1 - 0.00035 + (Math.random()-0.5)*0.0055);
+            }
+            hsData.push(hs);
+            bondData.push(bond);
+        }
+        day.setDate(day.getDate() + 1);
+    }
+    return {labels,hsData,bondData};
+}
+
+function renderChart(){
+    if(chart) chart.destroy();
+    chart = new Chart(ctx,{
+        type:"line",
+        data:{
+            labels:labels,
+            datasets:[
+                {
+                    label:"沪深300全收益（归一净值）",
+                    data:hsData,
+                    borderColor:"#e63946",
+                    borderWidth:2,
+                    pointRadius:0,
+                    tension:0.2,
+                    fill:false
+                },
+                {
+                    label:"二级债885007（归一净值）",
+                    data:bondData,
+                    borderColor:"#2a9d8f",
+                    borderWidth:2,
+                    pointRadius:0,
+                    tension:0.2,
+                    fill:false
+                }
+            ]
+        },
+        options:{
+            responsive:true,
+            maintainAspectRatio:false,
+            interaction:{mode:"index",intersect:false},
+            plugins:{
+                tooltip:{
+                    callbacks:{
+                        label:function(item){
+                            const idx = item.dataIndex;
+                            const hv = hsData[idx];
+                            const bv = bondData[idx];
+                            const diff = (hv - bv).toFixed(4);
+                            return [
+                                `沪深300归一净值：${hv.toFixed(4)}`,
+                                `二级债归一净值：${bv.toFixed(4)}`,
+                                `差值(沪深-债基)：${diff}`
+                            ]
+                        }
+                    }
+                },
+                zoom:{
+                    zoom:{wheel:{enabled:true},mode:"x"},
+                    pan:{enabled:true,mode:"x"}
+                }
+            },
+            scales:{
+                x:{
+                    type:"time",
+                    time:{unit:"year",displayFormats:{year:"yyyy"}}
+                },
+                y:{
+                    title:{display:true,text:"归一净值（起点=1）"}
+                }
+            }
+        }
+    });
+    slider.max = Math.max(0, labels.length - viewWindowLen);
+    slider.value = 0;
+    updateSliderView();
+}
+
+function updateSliderView(){
+    const s = Number(slider.value);
+    const e = Math.min(s + viewWindowLen, labels.length - 1);
+    chart.options.scales.x.min = labels[s];
+    chart.options.scales.x.max = labels[e];
+    chart.update();
+    showStartDate.innerText = labels[s].toLocaleDateString();
+    showRange.innerText = `${labels[s].toLocaleDateString()} ~ ${labels[e].toLocaleDateString()}`;
+}
+slider.oninput = updateSliderView;
+
+// CSV读取逻辑
+fileInput.onchange = async function(e){
+    const f = e.target.files[0];
+    if(!f) return;
+    fileTip.innerText = "正在读取CSV...";
+    const txt = await f.text();
+    const rows = txt.trim().split("\n");
+    let raw = [];
+    for(let i=1;i<rows.length;i++){
+        const arr = rows[i].split(",");
+        if(arr.length<3) continue;
+        const dt = new Date(arr[0].trim());
+        const hv = parseFloat(arr[1]);
+        const bv = parseFloat(arr[2]);
+        if(isNaN(hv)||isNaN(bv)) continue;
+        raw.push({date:dt,hs:hv,bond:bv});
+    }
+    if(raw.length<10){
+        fileTip.innerText = "CSV读取失败，检查格式！";
+        return;
+    }
+    // 归一化
+    const baseHs = raw[0].hs;
+    const baseBond = raw[0].bond;
+    labels = []; hsData = []; bondData = [];
+    raw.forEach(d=>{
+        labels.push(d.date);
+        hsData.push(d.hs / baseHs);
+        bondData.push(d.bond / baseBond);
+    })
+    fileTip.innerText = `✅ 加载CSV成功，共 ${raw.length} 条交易日数据`;
+    renderChart();
+}
+
+// 初始化模拟20年数据
+genSimData();
+renderChart();
+</script>
+</body>
+</html>
